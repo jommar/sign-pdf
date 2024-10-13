@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF Upload and Sign</title>
+    <!-- Vuetify CSS -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/vuetify@3.0.0-beta.0/dist/vuetify.min.css"
+      rel="stylesheet"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+    <style>
+      #pdfCanvas {
+        cursor: crosshair;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <v-app>
+        <v-container fluid class="mt-5">
+          <v-card>
+            <v-card-title>Upload and Sign PDF</v-card-title>
+            <v-card-text>
+              <v-form ref="form">
+                <!-- File Input for PDF -->
+                <v-file-input
+                  v-model="pdfFile"
+                  label="Select PDF"
+                  accept="application/pdf"
+                  prepend-icon="mdi-file-pdf-box"
+                  outlined
+                  required
+                  @change="displayPDF"
+                ></v-file-input>
+
+                <!-- Display PDF and Enable Signing -->
+                <div v-if="pdfUrl">
+                  <div class="d-flex justify-center">
+                    <canvas
+                      id="pdfCanvas"
+                      @mousedown="startDrawing"
+                      @mouseup="stopDrawing"
+                      @mousemove="draw"
+                      @mouseleave="stopDrawing"
+                    ></canvas>
+                  </div>
+
+                  <div class="d-flex justify-center">
+                    <v-btn @click="clearSignature" color="error" class="mt-3">
+                      Clear Signature
+                    </v-btn>
+                    <v-btn
+                      @click="savePDFWithSignature"
+                      color="primary"
+                      class="mt-3"
+                    >
+                      Save Signed PDF
+                    </v-btn>
+                  </div>
+                </div>
+              </v-form>
+            </v-card-text>
+          </v-card>
+        </v-container>
+      </v-app>
+    </div>
+
+    <!-- Vue and Vuetify JS -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vuetify@3.0.0-beta.0/dist/vuetify.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <script>
+      const { createApp } = Vue;
+      const { createVuetify } = Vuetify;
+
+      const app = createApp({
+        data() {
+          return {
+            pdfFile: [],
+            pdfUrl: null,
+            isDrawing: false,
+            lastX: 0,
+            lastY: 0,
+          };
+        },
+        methods: {
+          displayPDF() {
+            if (this.pdfFile.length) {
+              const file = this.pdfFile[0];
+              const reader = new FileReader();
+
+              reader.onload = (e) => {
+                this.pdfUrl = e.target.result;
+                this.renderPDF(this.pdfUrl);
+              };
+
+              reader.readAsArrayBuffer(file);
+            }
+          },
+          renderPDF(pdfData) {
+            const loadingTask = pdfjsLib.getDocument({ data: pdfData });
+            loadingTask.promise.then((pdf) => {
+              pdf.getPage(1).then((page) => {
+                const scale = 1.5;
+                const viewport = page.getViewport({ scale });
+                const canvas = document.getElementById("pdfCanvas");
+                const context = canvas.getContext("2d");
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                const renderContext = {
+                  canvasContext: context,
+                  viewport: viewport,
+                };
+                page.render(renderContext);
+              });
+            });
+          },
+          // Drawing methods
+          startDrawing(event) {
+            this.isDrawing = true;
+            const canvas = document.getElementById("pdfCanvas");
+            const rect = canvas.getBoundingClientRect();
+            this.lastX = event.clientX - rect.left;
+            this.lastY = event.clientY - rect.top;
+          },
+          stopDrawing() {
+            this.isDrawing = false;
+          },
+          draw(event) {
+            if (!this.isDrawing) return;
+
+            const canvas = document.getElementById("pdfCanvas");
+            const context = canvas.getContext("2d");
+            const rect = canvas.getBoundingClientRect();
+
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+
+            context.strokeStyle = "black"; // Color of the signature
+            context.lineWidth = 2; // Thickness of the signature line
+            context.beginPath();
+            context.moveTo(this.lastX, this.lastY);
+            context.lineTo(x, y);
+            context.stroke();
+
+            this.lastX = x;
+            this.lastY = y;
+          },
+          clearSignature() {
+            const canvas = document.getElementById("pdfCanvas");
+            const context = canvas.getContext("2d");
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            // Redraw the PDF content
+            this.renderPDF(this.pdfUrl);
+          },
+          savePDFWithSignature() {
+            const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            const canvas = document.getElementById("pdfCanvas");
+
+            // Convert the canvas to an image (Data URL)
+            const imgData = canvas.toDataURL("image/jpeg");
+
+            // Create a jsPDF instance
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF("portrait", "pt", [
+              canvas.width,
+              canvas.height,
+            ]);
+
+            // Add the canvas image (which includes the PDF + signature) to the jsPDF document
+            pdf.addImage(imgData, "JPEG", 0, 0, canvas.width, canvas.height);
+
+            // Generate a 3-character suffix
+            const suffix = Array(3)
+              .fill(null)
+              .map(() => chars[Math.floor(Math.random() * chars.length)])
+              .join("");
+
+            // Save the new PDF with the generated suffix in the filename
+            pdf.save(`${new Date().getTime()}-${suffix}-signed.pdf`);
+          },
+        },
+      });
+
+      const vuetify = createVuetify();
+      app.use(vuetify).mount("#app");
+    </script>
+  </body>
+</html>
